@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, time
+from datetime import datetime
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -7,7 +7,7 @@ TOKEN = "8643705189:AAFhmfrgm7C7-INCVNGEUN6ns4GWMFHzzw8"
 DB_FILE = "chats.json"
 
 
-# ---------- работа с базой ----------
+# ---------- база ----------
 def load_chats():
     try:
         with open(DB_FILE, "r") as f:
@@ -53,49 +53,40 @@ async def oplata(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"До оплаты осталось {days} дней")
 
 
-# ---------- ежедневная проверка ----------
-async def daily_check(context: ContextTypes.DEFAULT_TYPE):
-    today = datetime.now()
-
-    if today.day == 25:
-        for chat_id in chats:
-            try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="💸 Сегодня день оплаты!"
-                )
-            except:
-                pass
-
-
-# ---------- недельное напоминание ----------
-async def weekly_notify(context: ContextTypes.DEFAULT_TYPE):
+# ---------- рассылка ----------
+async def send_notifications(app):
     days = days_until_25()
 
-    for chat_id in chats:
+    if days == 0:
+        text = "💸 Сегодня день оплаты!"
+    else:
+        text = f"📅 До оплаты осталось {days} дней"
+
+    for chat_id in list(chats):
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"📅 До оплаты осталось {days} дней"
-            )
+            await app.bot.send_message(chat_id=chat_id, text=text)
         except:
             pass
 
 
+# ---------- цикл ----------
+async def background_loop(app):
+    while True:
+        await send_notifications(app)
+        await asyncio.sleep(24 * 60 * 60)  # раз в день
+
+
 # ---------- запуск ----------
+import asyncio
+
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("oplata", oplata))
 
-    job_queue = app.job_queue
-
-    # каждый день в 10:00
-    job_queue.run_daily(daily_check, time=time(hour=10, minute=0))
-
-    # раз в 7 дней (каждые 7 суток)
-    job_queue.run_repeating(weekly_notify, interval=7 * 24 * 60 * 60, first=10)
+    # запускаем фоновую задачу
+    asyncio.create_task(background_loop(app))
 
     print("Bot started...")
     app.run_polling()
